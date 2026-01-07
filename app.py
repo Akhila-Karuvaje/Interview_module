@@ -17,7 +17,7 @@ import time
 import logging
 
 # ===== Groq API Import =====
-from groq import Groq
+from openai import OpenAI
 
 # === Extra imports for video evaluation ===
 import cv2
@@ -101,7 +101,7 @@ except Exception as e:
 
 def call_groq_api(prompt, max_retries=3):
     """
-    Calls Groq API with retry logic and error handling
+    Calls Groq API using OpenAI-compatible endpoint with retry logic
     """
     for attempt in range(max_retries):
         try:
