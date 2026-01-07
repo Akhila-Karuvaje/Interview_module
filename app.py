@@ -1,7 +1,3 @@
-# ============================================================
-# app.py - Production-Ready for Render Deployment
-# ============================================================
-
 from flask import Flask, render_template, request, redirect, url_for, jsonify, session
 import os
 import speech_recognition as sr
@@ -15,9 +11,7 @@ import re
 import json
 import time
 import logging
-
-# ===== Groq API Import =====
-from openai import OpenAI
+import requests
 
 # === Extra imports for video evaluation ===
 import cv2
@@ -61,19 +55,14 @@ download_nltk_data()
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'fallback_secret_key_change_in_production')
 
-# ===== GROQ API CONFIGURATION (from Environment Variable) =====
-# ===== GROQ API CONFIGURATION using OpenAI client =====
-from openai import OpenAI
-
+# ===== GROQ API CONFIGURATION using requests =====
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
 if not GROQ_API_KEY:
     logger.error("GROQ_API_KEY not found in environment variables!")
     raise ValueError("GROQ_API_KEY must be set in environment variables")
 
-groq_client = OpenAI(
-    api_key=GROQ_API_KEY,
-    base_url="https://api.groq.com/openai/v1"
-)
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+logger.info("Groq API configured successfully")
 
 # ============================================================
 # ===== ML MODELS LOADING (with error handling) =====
@@ -81,7 +70,6 @@ groq_client = OpenAI(
 logger.info("Loading ML models...")
 
 try:
-    # Use 'tiny' model for faster deployment (smaller size)
     model_whisper = whisper.load_model("tiny")
     logger.info("Whisper model loaded successfully (tiny)")
 except Exception as e:
@@ -101,20 +89,38 @@ except Exception as e:
 
 def call_groq_api(prompt, max_retries=3):
     """
-    Calls Groq API using OpenAI-compatible endpoint with retry logic
+    Calls Groq API using direct HTTP requests with retry logic
     """
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": "You are an expert interview assistant."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 2048
+    }
+    
     for attempt in range(max_retries):
         try:
-            response = groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {"role": "system", "content": "You are an expert interview assistant."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=2048
+            response = requests.post(
+                GROQ_API_URL,
+                headers=headers,
+                json=payload,
+                timeout=30
             )
-            return response.choices[0].message.content
+            
+            if response.status_code == 200:
+                data = response.json()
+                return data['choices'][0]['message']['content']
+            else:
+                logger.error(f"Groq API returned status {response.status_code}: {response.text}")
+                raise Exception(f"API error: {response.status_code}")
         
         except Exception as e:
             logger.error(f"Groq API Error (Attempt {attempt + 1}/{max_retries}): {str(e)}")
@@ -245,7 +251,6 @@ def get_analysis():
 
     audio_file = request.files['audio']
     
-    # Use /tmp directory for Render (ephemeral storage)
     audio_path = "/tmp/user_audio.wav"
     audio_file.save(audio_path)
 
@@ -256,7 +261,6 @@ def get_analysis():
         transcribed_text = recognizer.recognize_google(audio)
         duration = 10
         
-        # Clean up temp file
         if os.path.exists(audio_path):
             os.remove(audio_path)
             
@@ -330,21 +334,17 @@ def submit_video_answer(qid):
 
     file = request.files['video']
     
-    # Use /tmp directory for Render
     os.makedirs("/tmp/uploads", exist_ok=True)
     filepath = os.path.join("/tmp/uploads", f"answer_{qid}.webm")
     file.save(filepath)
 
     try:
-        # Transcribe using Whisper
         result = model_whisper.transcribe(filepath)
         transcript = result['text']
         
-        # Clean up video file immediately
         if os.path.exists(filepath):
             os.remove(filepath)
 
-        # Get AI evaluation
         prompt = f"""
         You are an expert interview evaluator.
         Analyze this interview answer for question ID {qid} and return JSON in this exact format:
@@ -392,7 +392,6 @@ def submit_video_answer(qid):
         
     except Exception as e:
         logger.error(f"Video processing error: {str(e)}")
-        # Clean up on error
         if os.path.exists(filepath):
             os.remove(filepath)
         return jsonify({"error": f"Video processing failed: {str(e)}"}), 500
