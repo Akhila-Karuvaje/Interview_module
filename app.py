@@ -67,21 +67,34 @@ logger.info("Groq API configured successfully")
 # ============================================================
 # ===== ML MODELS LOADING (with error handling) =====
 # ============================================================
-logger.info("Loading ML models...")
+# ============================================================
+# ===== ML MODELS LOADING (with error handling) =====
+# ============================================================
+# ============================================================
+# ===== ML MODELS LOADING (Lazy loading to avoid timeout) =====
+# ============================================================
+model_whisper = None
+model_bert = None
 
-try:
-    model_whisper = whisper.load_model("tiny")
-    logger.info("Whisper model loaded successfully (tiny)")
-except Exception as e:
-    logger.error(f"Failed to load Whisper model: {e}")
-    model_whisper = None
-
-try:
-    model_bert = SentenceTransformer('all-MiniLM-L6-v2')
-    logger.info("BERT model loaded successfully")
-except Exception as e:
-    logger.error(f"Failed to load BERT model: {e}")
-    model_bert = None
+def load_models():
+    """Load models on first use to avoid startup timeout"""
+    global model_whisper, model_bert
+    
+    if model_whisper is None:
+        try:
+            logger.info("Loading Whisper model...")
+            model_whisper = whisper.load_model("tiny")
+            logger.info("Whisper model loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load Whisper model: {e}")
+    
+    if model_bert is None:
+        try:
+            logger.info("Loading BERT model...")
+            model_bert = SentenceTransformer('all-MiniLM-L6-v2')
+            logger.info("BERT model loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load BERT model: {e}")
 
 # ============================================================
 # ===== HELPER FUNCTIONS =====
@@ -173,8 +186,7 @@ def health():
     """Health check endpoint for Render"""
     return jsonify({
         "status": "healthy",
-        "whisper_loaded": model_whisper is not None,
-        "bert_loaded": model_bert is not None
+        "app_ready": True
     }), 200
 
 @app.route('/generate_questions', methods=['POST'])
@@ -329,6 +341,9 @@ def submit_video_answer(qid):
     if 'video' not in request.files:
         return jsonify({"error": "No video uploaded"}), 400
 
+    # Load models on first use
+    load_models()
+    
     if not model_whisper:
         return jsonify({"error": "Whisper model not loaded"}), 500
 
