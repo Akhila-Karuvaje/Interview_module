@@ -62,12 +62,18 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'fallback_secret_key_change_in_production')
 
 # ===== GROQ API CONFIGURATION (from Environment Variable) =====
+# ===== GROQ API CONFIGURATION using OpenAI client =====
+from openai import OpenAI
+
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
 if not GROQ_API_KEY:
     logger.error("GROQ_API_KEY not found in environment variables!")
     raise ValueError("GROQ_API_KEY must be set in environment variables")
 
-groq_client = Groq(api_key=GROQ_API_KEY)
+groq_client = OpenAI(
+    api_key=GROQ_API_KEY,
+    base_url="https://api.groq.com/openai/v1"
+)
 
 # ============================================================
 # ===== ML MODELS LOADING (with error handling) =====
